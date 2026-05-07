@@ -17,7 +17,7 @@
     .tier-red { background-color: #fef2f2 !important; border-left: 4px solid #ef4444 !important; }
   </style>
   <script>
-    // --- STOP! PASTE YOUR APPS SCRIPT WEB APP URL HERE ---
+    // App Script Web App URL
     const API_URL = "https://script.google.com/macros/s/AKfycbzT7mM9y-Mn0eFTiXV-GkJWap2yVaRG6cKptgRaIkR13FxyMc5mgOWhJextDgi2aCqvtQ/exec"; 
     
     let state = { email: '', data: null, role: 'Member' };
@@ -119,7 +119,6 @@
       const res = await apiCall({ action: 'get_data', email: state.email });
       if (res.success) {
         state.data = res;
-        // If they are looking at a screen, re-render it when data arrives
         document.querySelectorAll('main > div:not(.hidden)').forEach(el => {
           loadViewData(el.id);
         });
@@ -157,9 +156,28 @@
       for(let i=1; i<=10; i++) {
         const isRed = i >= 8;
         const tierClass = isRed ? 'tier-red bg-red-50' : 'bg-white';
-        const teamsInTier = state.data.teams.filter(t => parseInt(t.tier) === i);
+        
+        // Bulletproof tier matching: Strips all letters/spaces out of the cell and just checks the number
+        const teamsInTier = state.data.teams.filter(t => {
+            const tierNumber = String(t.tier).replace(/\D/g, ''); 
+            return tierNumber == i;
+        });
+
         const selectedTeamText = userPicks[i] ? userPicks[i] : `Choose Tier ${i} Team`;
         const selectedStyle = userPicks[i] ? 'text-slate-900 font-semibold' : 'text-slate-500 font-normal';
+
+        let listContent = '';
+        if (teamsInTier.length > 0) {
+            listContent = teamsInTier.map(t => `
+                <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}')">
+                  ${t.flag ? `<img src="${t.flag}" class="w-8 h-5 mr-3 object-cover border border-gray-300 rounded-sm">` : `<div class="w-8 h-5 mr-3 bg-gray-300 rounded-sm"></div>`}
+                  <span class="flex-1 text-sm font-medium text-slate-700">${t.name}</span>
+                  <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded shadow-sm">Grp ${t.group}</span>
+                </div>
+              `).join('');
+        } else {
+            listContent = `<div class="p-4 text-sm text-gray-400 italic text-center">No teams found. Check the "Tier" column on your sheet!</div>`;
+        }
 
         html += `
           <div class="app-card mb-3 overflow-hidden ${tierClass}">
@@ -171,13 +189,7 @@
               <span id="chevron-${i}" class="transform transition-transform duration-200 text-slate-400">▼</span>
             </div>
             <div id="tier-list-${i}" class="hidden bg-gray-50 border-t border-gray-200">
-              ${teamsInTier.map(t => `
-                <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}')">
-                  ${t.flag ? `<img src="${t.flag}" class="w-8 h-5 mr-3 object-cover border border-gray-300 rounded-sm">` : `<div class="w-8 h-5 mr-3 bg-gray-300 rounded-sm"></div>`}
-                  <span class="flex-1 text-sm font-medium text-slate-700">${t.name}</span>
-                  <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded shadow-sm">Grp ${t.group}</span>
-                </div>
-              `).join('')}
+              ${listContent}
             </div>
           </div>
         `;
@@ -232,8 +244,11 @@
         <div class="space-y-3">
       `;
 
-      if(state.data.users && state.data.users.length > 0) {
-        state.data.users.forEach(u => {
+      // Filter out blank rows or formulas that output nothing
+      const validUsers = state.data.users ? state.data.users.filter(u => u.email && String(u.email).trim() !== '') : [];
+
+      if(validUsers.length > 0) {
+        validUsers.forEach(u => {
           html += `
             <div class="app-card p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
               <div>
