@@ -17,8 +17,40 @@
     .tier-red { background-color: #fef2f2 !important; border-left: 4px solid #ef4444 !important; }
   </style>
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbzT7mM9y-Mn0eFTiXV-GkJWap2yVaRG6cKptgRaIkR13FxyMc5mgOWhJextDgi2aCqvtQ/exec"; // PASTE YOUR URL HERE
+    // --- STOP! PASTE YOUR APPS SCRIPT WEB APP URL HERE ---
+    const API_URL = "https://script.google.com/macros/s/AKfycbzT7mM9y-Mn0eFTiXV-GkJWap2yVaRG6cKptgRaIkR13FxyMc5mgOWhJextDgi2aCqvtQ/exec"; 
+    
     let state = { email: '', data: null };
+
+    // Initialize App and Check for Saved Login
+    async function initApp() {
+      const savedEmail = localStorage.getItem('wc26_email');
+      const savedCode = localStorage.getItem('wc26_code');
+
+      if (savedEmail && savedCode) {
+        // Attempt silent login in the background
+        const res = await apiCall({ action: 'login', email: savedEmail, code: savedCode });
+        
+        if (res && res.success) {
+          state.email = savedEmail;
+          state.role = res.role;
+          
+          document.getElementById('loading-view').classList.add('hidden');
+          document.getElementById('nav-container').classList.remove('hidden');
+          document.getElementById('bottom-nav').classList.remove('hidden');
+          
+          if(state.role !== 'Admin') document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
+          
+          navigate('home-view');
+          fetchAppData();
+          return; // Stop here, they are successfully logged in
+        }
+      }
+      
+      // If no saved data, or if login failed, show the login screen
+      document.getElementById('loading-view').classList.add('hidden');
+      document.getElementById('login-view').classList.remove('hidden');
+    }
 
     async function apiCall(payload) {
       const btn = document.activeElement;
@@ -35,15 +67,20 @@
         return data;
       } catch (e) {
         if(btn && btn.tagName === 'BUTTON') btn.innerText = originalText;
-        alert('Connection error. Please try again.');
+        console.error("API Error:", e);
+        return { success: false, message: 'Connection error.' };
       }
     }
 
     function navigate(viewId) {
+      // Hide all main views
       document.querySelectorAll('main > div').forEach(el => el.classList.add('hidden'));
+      // Show targeted view
       document.getElementById(viewId).classList.remove('hidden');
+      // Hide mobile menu if open
       document.getElementById('mobile-menu').classList.add('hidden');
-      if(viewId !== 'login-view') loadViewData(viewId);
+      
+      if(viewId !== 'login-view' && viewId !== 'loading-view') loadViewData(viewId);
     }
 
     function toggleMenu() {
@@ -57,8 +94,13 @@
       const res = await apiCall({ action: 'login', email, code });
       
       if (res.success) {
+        // Save to device storage!
+        localStorage.setItem('wc26_email', email);
+        localStorage.setItem('wc26_code', code);
+
         state.email = email;
         state.role = res.role;
+        document.getElementById('login-view').classList.add('hidden');
         document.getElementById('nav-container').classList.remove('hidden');
         document.getElementById('bottom-nav').classList.remove('hidden');
         if(state.role !== 'Admin') document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
@@ -74,7 +116,7 @@
       const email = document.getElementById('email').value;
       if (!email) return alert("Please enter your email first.");
       const res = await apiCall({ action: 'forgot_code', email });
-      alert(res.message);
+      alert(res.message || 'If that email exists, an invite code was sent.');
     }
 
     async function fetchAppData() {
@@ -84,8 +126,19 @@
 
     function logout() {
       state = { email: '', data: null };
+      
+      // Wipe device storage!
+      localStorage.removeItem('wc26_email');
+      localStorage.removeItem('wc26_code');
+
       document.getElementById('nav-container').classList.add('hidden');
       document.getElementById('bottom-nav').classList.add('hidden');
+      
+      // Clear inputs
+      document.getElementById('email').value = '';
+      document.getElementById('code').value = '';
+      document.getElementById('login-error').classList.add('hidden');
+      
       navigate('login-view');
     }
 
@@ -123,6 +176,9 @@
       `;
       document.getElementById('rules-content').innerHTML = html;
     }
+
+    // Trigger initApp when the page loads
+    window.addEventListener('DOMContentLoaded', initApp);
   </script>
 </head>
 <body class="text-slate-800 pb-20">
@@ -155,7 +211,13 @@
   </div>
 
   <main class="max-w-md mx-auto p-4 mt-2">
-    <div id="login-view" class="fade-in max-w-sm mx-auto mt-20">
+    
+    <div id="loading-view" class="flex flex-col items-center justify-center h-64 mt-20 fade-in">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mb-4"></div>
+      <p class="text-slate-500 text-sm font-medium">Loading WC26 Pool...</p>
+    </div>
+
+    <div id="login-view" class="hidden fade-in max-w-sm mx-auto mt-20">
       <div class="text-center mb-8">
         <img src="icon.png" alt="Logo" class="h-24 mx-auto mb-4">
         <h1 class="text-2xl font-bold">WC26 Pool</h1>
@@ -225,17 +287,18 @@
     <button onclick="navigate('stats-view')" class="flex flex-col items-center hover:text-slate-900"><span class="text-xl mb-1">📊</span>Stats</button>
   </nav>
 
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
+  </script>
+
   <style>
     @supports (padding-bottom: env(safe-area-inset-bottom)) {
       .pb-safe { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
     }
   </style>
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js');
-    });
-  }
-</script>
 </body>
 </html>
