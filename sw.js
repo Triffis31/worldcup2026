@@ -1,5 +1,5 @@
 // CHANGE THIS VERSION NUMBER EVERY TIME YOU UPDATE YOUR APP
-const CACHE_NAME = 'wc26-pool-v8'; 
+const CACHE_NAME = 'wc26-pool-v9'; 
 
 const urlsToCache = [
   './',

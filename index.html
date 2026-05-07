@@ -125,6 +125,12 @@
       const res = await apiCall({ action: 'get_data', email: state.email });
       if (res.success) {
         state.data = res;
+        
+        // Sync local picks with what is saved in the database
+        if (state.data.currentUser && state.data.currentUser.picks) {
+          userPicks = state.data.currentUser.picks;
+        }
+
         document.querySelectorAll('main > div:not(.hidden)').forEach(el => {
           loadViewData(el.id);
         });
@@ -133,6 +139,7 @@
 
     function logout() {
       state = { email: '', data: null, role: 'Member' };
+      userPicks = {}; // Clear picks on logout
       localStorage.removeItem('wc26_email');
       localStorage.removeItem('wc26_code');
       document.getElementById('nav-container').classList.add('hidden');
@@ -167,7 +174,7 @@
             return tierNumber == i;
         });
 
-        // Setup the dynamic HTML for the selected team
+        // Load pre-existing picks from the database and generate their rich HTML
         let selectedHtml = `<span class="text-sm mt-1 text-slate-500 font-normal">Choose Tier ${i} Team</span>`;
         if (userPicks[i]) {
             const t = teamsInTier.find(tm => tm.name === userPicks[i]);
@@ -240,13 +247,11 @@
     }
 
     async function submitPicks() {
-      if(Object.keys(userPicks).length < 10) {
-        alert("Please select a team for all 10 tiers before saving.");
-        return;
-      }
+      // Allow partial submissions: Validation Removed
       const res = await apiCall({ action: 'submit_picks', email: state.email, picks: userPicks });
       if(res && res.success) {
         alert("Picks saved successfully!");
+        fetchAppData(); // Resync state with DB
       } else {
         alert(res.message || "Error saving picks to the database.");
       }
