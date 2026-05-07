@@ -29,6 +29,7 @@
     
     let state = { email: '', data: null, role: 'Member' };
     let userPicks = {};
+    let isLoggingIn = false; // Lock to prevent double-taps
 
     async function initApp() {
       const savedEmail = localStorage.getItem('wc26_email');
@@ -65,7 +66,14 @@
     async function apiCall(payload) {
       const btn = document.activeElement;
       const originalText = btn ? btn.innerText : '';
-      if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = 'Loading...';
+      const isButton = btn && btn.tagName === 'BUTTON' && !btn.id.includes('select');
+      
+      // Visually disable the button while loading
+      if(isButton) {
+        btn.innerText = 'Loading...';
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
       
       try {
         const res = await fetch(API_URL, {
@@ -73,10 +81,20 @@
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = originalText;
+        
+        // Re-enable the button
+        if(isButton) {
+          btn.innerText = originalText;
+          btn.disabled = false;
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
         return data;
       } catch (e) {
-        if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = originalText;
+        if(isButton) {
+          btn.innerText = originalText;
+          btn.disabled = false;
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
         console.error("API Error:", e);
         return { success: false, message: 'Connection error. Check your Apps Script deployment URL.' };
       }
@@ -96,6 +114,11 @@
 
     async function handleLogin(e) {
       e.preventDefault();
+      
+      // Stop execution if they double tap
+      if (isLoggingIn) return; 
+      isLoggingIn = true;
+
       const email = document.getElementById('email').value;
       const code = document.getElementById('code').value;
       const res = await apiCall({ action: 'login', email, code });
@@ -123,6 +146,8 @@
         document.getElementById('login-error').innerText = res.message;
         document.getElementById('login-error').classList.remove('hidden');
       }
+
+      isLoggingIn = false; // Release the lock
     }
 
     async function forgotCode() {
