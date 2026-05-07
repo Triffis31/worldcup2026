@@ -20,7 +20,8 @@
     // --- STOP! PASTE YOUR APPS SCRIPT WEB APP URL HERE ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzT7mM9y-Mn0eFTiXV-GkJWap2yVaRG6cKptgRaIkR13FxyMc5mgOWhJextDgi2aCqvtQ/exec"; 
     
-    let state = { email: '', data: null };
+    let state = { email: '', data: null, role: 'Member' };
+    let userPicks = {};
 
     // Initialize App and Check for Saved Login
     async function initApp() {
@@ -28,7 +29,6 @@
       const savedCode = localStorage.getItem('wc26_code');
 
       if (savedEmail && savedCode) {
-        // Attempt silent login in the background
         const res = await apiCall({ action: 'login', email: savedEmail, code: savedCode });
         
         if (res && res.success) {
@@ -43,11 +43,10 @@
           
           navigate('home-view');
           fetchAppData();
-          return; // Stop here, they are successfully logged in
+          return; 
         }
       }
       
-      // If no saved data, or if login failed, show the login screen
       document.getElementById('loading-view').classList.add('hidden');
       document.getElementById('login-view').classList.remove('hidden');
     }
@@ -55,7 +54,7 @@
     async function apiCall(payload) {
       const btn = document.activeElement;
       const originalText = btn ? btn.innerText : '';
-      if(btn && btn.tagName === 'BUTTON') btn.innerText = 'Loading...';
+      if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = 'Loading...';
       
       try {
         const res = await fetch(API_URL, {
@@ -63,21 +62,18 @@
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if(btn && btn.tagName === 'BUTTON') btn.innerText = originalText;
+        if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = originalText;
         return data;
       } catch (e) {
-        if(btn && btn.tagName === 'BUTTON') btn.innerText = originalText;
+        if(btn && btn.tagName === 'BUTTON' && !btn.id.includes('select')) btn.innerText = originalText;
         console.error("API Error:", e);
-        return { success: false, message: 'Connection error.' };
+        return { success: false, message: 'Connection error. Check your Apps Script deployment URL.' };
       }
     }
 
     function navigate(viewId) {
-      // Hide all main views
       document.querySelectorAll('main > div').forEach(el => el.classList.add('hidden'));
-      // Show targeted view
       document.getElementById(viewId).classList.remove('hidden');
-      // Hide mobile menu if open
       document.getElementById('mobile-menu').classList.add('hidden');
       
       if(viewId !== 'login-view' && viewId !== 'loading-view') loadViewData(viewId);
@@ -94,7 +90,6 @@
       const res = await apiCall({ action: 'login', email, code });
       
       if (res.success) {
-        // Save to device storage!
         localStorage.setItem('wc26_email', email);
         localStorage.setItem('wc26_code', code);
 
@@ -103,6 +98,7 @@
         document.getElementById('login-view').classList.add('hidden');
         document.getElementById('nav-container').classList.remove('hidden');
         document.getElementById('bottom-nav').classList.remove('hidden');
+        
         if(state.role !== 'Admin') document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
         navigate('home-view');
         fetchAppData();
@@ -121,33 +117,184 @@
 
     async function fetchAppData() {
       const res = await apiCall({ action: 'get_data', email: state.email });
-      if (res.success) state.data = res;
+      if (res.success) {
+        state.data = res;
+        // If they are looking at a screen, re-render it when data arrives
+        document.querySelectorAll('main > div:not(.hidden)').forEach(el => {
+          loadViewData(el.id);
+        });
+      }
     }
 
     function logout() {
-      state = { email: '', data: null };
-      
-      // Wipe device storage!
+      state = { email: '', data: null, role: 'Member' };
       localStorage.removeItem('wc26_email');
       localStorage.removeItem('wc26_code');
-
       document.getElementById('nav-container').classList.add('hidden');
       document.getElementById('bottom-nav').classList.add('hidden');
-      
-      // Clear inputs
       document.getElementById('email').value = '';
       document.getElementById('code').value = '';
       document.getElementById('login-error').classList.add('hidden');
-      
       navigate('login-view');
     }
 
     // Dynamic View Loaders
     function loadViewData(view) {
-      if(!state.data) return; // wait for fetch
+      if(!state.data) return; 
       if(view === 'rules-view') renderRules();
+      if(view === 'choose-view') renderChooseTeams();
+      if(view === 'admin-view') renderAdmin();
     }
 
+    // --- Choose Teams Logic ---
+    function renderChooseTeams() {
+      if (!state.data || !state.data.teams) {
+        document.getElementById('choose-teams-container').innerHTML = '<div class="text-center p-8 text-gray-500"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900 mx-auto mb-2"></div>Loading teams...</div>';
+        return;
+      }
+
+      let html = '';
+      for(let i=1; i<=10; i++) {
+        const isRed = i >= 8;
+        const tierClass = isRed ? 'tier-red bg-red-50' : 'bg-white';
+        const teamsInTier = state.data.teams.filter(t => parseInt(t.tier) === i);
+        const selectedTeamText = userPicks[i] ? userPicks[i] : `Choose Tier ${i} Team`;
+        const selectedStyle = userPicks[i] ? 'text-slate-900 font-semibold' : 'text-slate-500 font-normal';
+
+        html += `
+          <div class="app-card mb-3 overflow-hidden ${tierClass}">
+            <div class="p-4 flex justify-between items-center cursor-pointer font-semibold border-b border-transparent hover:bg-gray-50 transition" onclick="toggleTier(${i})">
+              <div class="flex flex-col">
+                <span class="${isRed ? 'text-red-700' : 'text-slate-800'}">Tier ${i}</span>
+                <span id="selected-tier-${i}" class="text-sm mt-1 ${selectedStyle}">${selectedTeamText}</span>
+              </div>
+              <span id="chevron-${i}" class="transform transition-transform duration-200 text-slate-400">▼</span>
+            </div>
+            <div id="tier-list-${i}" class="hidden bg-gray-50 border-t border-gray-200">
+              ${teamsInTier.map(t => `
+                <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}')">
+                  ${t.flag ? `<img src="${t.flag}" class="w-8 h-5 mr-3 object-cover border border-gray-300 rounded-sm">` : `<div class="w-8 h-5 mr-3 bg-gray-300 rounded-sm"></div>`}
+                  <span class="flex-1 text-sm font-medium text-slate-700">${t.name}</span>
+                  <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded shadow-sm">Grp ${t.group}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+      document.getElementById('choose-teams-container').innerHTML = html;
+    }
+
+    function toggleTier(tier) {
+      const list = document.getElementById(`tier-list-${tier}`);
+      const chevron = document.getElementById(`chevron-${tier}`);
+      list.classList.toggle('hidden');
+      if (list.classList.contains('hidden')) {
+        chevron.classList.remove('rotate-180');
+      } else {
+        chevron.classList.add('rotate-180');
+      }
+    }
+
+    function selectTeam(tier, teamName) {
+      userPicks[tier] = teamName;
+      const el = document.getElementById(`selected-tier-${tier}`);
+      el.innerText = teamName;
+      el.classList.replace('text-slate-500', 'text-slate-900');
+      el.classList.replace('font-normal', 'font-semibold');
+      toggleTier(tier); 
+    }
+
+    async function submitPicks() {
+      if(Object.keys(userPicks).length < 10) {
+        alert("Please select a team for all 10 tiers before saving.");
+        return;
+      }
+      const res = await apiCall({ action: 'submit_picks', email: state.email, picks: userPicks });
+      if(res && res.success) {
+        alert("Picks saved successfully!");
+      } else {
+        alert("Picks saved locally! (Backend script integration needed to finalize)");
+      }
+    }
+
+    // --- Admin Logic ---
+    function renderAdmin() {
+      if (!state.data || state.role !== 'Admin') return;
+      const container = document.getElementById('admin-container');
+
+      let html = `
+        <button onclick="adminInvitePrompt()" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-full hover:bg-slate-800 transition mb-8 shadow-sm flex justify-center items-center">
+          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+          Invite New User
+        </button>
+        <h3 class="font-bold text-lg mb-3 border-b pb-2 text-slate-800">User Management</h3>
+        <div class="space-y-3">
+      `;
+
+      if(state.data.users && state.data.users.length > 0) {
+        state.data.users.forEach(u => {
+          html += `
+            <div class="app-card p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+              <div>
+                <div class="font-semibold text-slate-800">${u.name || u.email}</div>
+                <div class="text-xs text-slate-500 mt-1 flex gap-2">
+                  <span class="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Role: ${u.role || 'Member'}</span>
+                  <span class="${u.paid ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border px-2 py-0.5 rounded">Paid: ${u.paid ? 'Yes' : 'No'}</span>
+                </div>
+              </div>
+              <select onchange="handleAdminAction(this, '${u.email}')" class="text-sm border border-gray-300 rounded-lg p-2 bg-white focus:ring-slate-900 focus:border-slate-900 outline-none">
+                <option value="">Actions...</option>
+                <option value="resend">Resend Invite Code</option>
+                <option value="paid">Mark as Paid</option>
+                <option value="promote">Promote to Admin</option>
+              </select>
+            </div>
+          `;
+        });
+      } else {
+        html += `<div class="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-dashed">No users found.</div>`;
+      }
+
+      html += `</div>`;
+      container.innerHTML = html;
+    }
+
+    async function adminInvitePrompt() {
+      const email = prompt("Enter the email address to invite:");
+      if (!email) return;
+
+      const res = await apiCall({ action: 'admin_invite', email: email });
+      if(res && res.success) {
+        alert("Invite sent successfully!");
+        fetchAppData(); 
+      } else {
+        alert("Error sending invite. Make sure your Apps Script URL is correct.");
+      }
+    }
+
+    async function handleAdminAction(selectElement, email) {
+      const action = selectElement.value;
+      if (!action) return;
+      selectElement.value = ''; 
+      
+      let confirmMsg = "";
+      if (action === 'resend') confirmMsg = `Resend invite code to ${email}?`;
+      if (action === 'paid') confirmMsg = `Mark ${email} as paid?`;
+      if (action === 'promote') confirmMsg = `Promote ${email} to Admin?`;
+
+      if (!confirm(confirmMsg)) return;
+
+      const res = await apiCall({ action: 'admin_action', actionType: action, userEmail: email });
+      if(res && res.success) {
+        alert("Action completed successfully.");
+        fetchAppData(); 
+      } else {
+        alert("Error completing action. Check your backend deployment.");
+      }
+    }
+
+    // --- Rules Logic ---
     function renderRules() {
       const html = `
         <div class="app-card p-6 mb-4">
@@ -177,7 +324,6 @@
       document.getElementById('rules-content').innerHTML = html;
     }
 
-    // Trigger initApp when the page loads
     window.addEventListener('DOMContentLoaded', initApp);
   </script>
 </head>
@@ -192,20 +338,21 @@
   </header>
 
   <div id="mobile-menu" class="hidden fixed inset-0 z-50 bg-gray-900 bg-opacity-50">
-    <div class="bg-white w-64 h-full flex flex-col shadow-xl">
-      <div class="p-4 border-b flex justify-between items-center">
-        <span class="font-bold text-lg">Menu</span>
-        <button onclick="toggleMenu()" class="text-gray-500 text-2xl">&times;</button>
+    <div class="bg-white w-64 h-full flex flex-col shadow-xl transform transition-transform">
+      <div class="p-4 border-b flex justify-between items-center bg-slate-50">
+        <span class="font-bold text-lg text-slate-800">Menu</span>
+        <button onclick="toggleMenu()" class="text-gray-500 text-2xl hover:text-slate-900">&times;</button>
       </div>
-      <nav class="flex-1 p-4 space-y-2">
-        <button onclick="navigate('home-view')" class="w-full text-left p-3 hover:bg-gray-50 rounded-lg">Home</button>
-        <button onclick="navigate('picks-view')" class="w-full text-left p-3 hover:bg-gray-50 rounded-lg">My Picks</button>
-        <button onclick="navigate('leaderboard-view')" class="w-full text-left p-3 hover:bg-gray-50 rounded-lg">Leaderboard</button>
-        <button onclick="navigate('rules-view')" class="w-full text-left p-3 hover:bg-gray-50 rounded-lg">League Details</button>
-        <button onclick="navigate('admin-view')" class="w-full text-left p-3 hover:bg-gray-50 rounded-lg admin-only">Admin</button>
+      <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+        <button onclick="navigate('home-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition">Home</button>
+        <button onclick="navigate('choose-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition">Choose Teams</button>
+        <button onclick="navigate('picks-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition">My Picks</button>
+        <button onclick="navigate('leaderboard-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition">Leaderboard</button>
+        <button onclick="navigate('rules-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition">League Details</button>
+        <button onclick="navigate('admin-view')" class="w-full text-left p-3 hover:bg-gray-100 rounded-lg text-slate-700 font-medium transition admin-only">Admin Panel</button>
       </nav>
-      <div class="p-4 border-t">
-        <button onclick="logout()" class="w-full text-left p-3 text-red-600 font-semibold hover:bg-red-50 rounded-lg">Logout</button>
+      <div class="p-4 border-t bg-slate-50">
+        <button onclick="logout()" class="w-full text-left p-3 text-red-600 font-semibold hover:bg-red-100 rounded-lg transition">Logout</button>
       </div>
     </div>
   </div>
@@ -219,72 +366,89 @@
 
     <div id="login-view" class="hidden fade-in max-w-sm mx-auto mt-20">
       <div class="text-center mb-8">
-        <img src="icon.png" alt="Logo" class="h-24 mx-auto mb-4">
-        <h1 class="text-2xl font-bold">WC26 Pool</h1>
+        <img src="icon.png" alt="Logo" class="h-24 mx-auto mb-4 drop-shadow-sm">
+        <h1 class="text-2xl font-bold text-slate-800">WC26 Pool</h1>
       </div>
       <form onsubmit="handleLogin(event)" class="space-y-4 app-card p-6">
-        <p id="login-error" class="hidden text-red-500 text-sm text-center bg-red-50 p-2 rounded"></p>
+        <p id="login-error" class="hidden text-red-500 text-sm text-center bg-red-50 p-2 rounded border border-red-100"></p>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input type="email" id="email" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-slate-900 focus:border-slate-900" required>
+          <input type="email" id="email" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-slate-900 focus:border-slate-900 outline-none transition" required>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Invite Code</label>
-          <input type="text" id="code" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-slate-900 uppercase" required>
+          <input type="text" id="code" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-slate-900 uppercase outline-none transition" required>
         </div>
-        <button type="submit" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-full hover:bg-slate-800 transition">Log In</button>
+        <button type="submit" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-full hover:bg-slate-800 transition shadow-md">Log In</button>
         <div class="text-center mt-4">
-          <button type="button" onclick="forgotCode()" class="text-sm text-slate-500 hover:text-slate-800 underline">Forgot Invite Link?</button>
+          <button type="button" onclick="forgotCode()" class="text-sm text-slate-500 hover:text-slate-800 underline transition">Forgot Invite Link?</button>
         </div>
       </form>
     </div>
 
     <div id="home-view" class="hidden fade-in space-y-4">
-      <div class="p-6 bg-slate-900 text-white rounded-2xl mb-6 shadow-md">
-        <h2 class="text-xl font-semibold mb-1">Welcome back!</h2>
-        <p class="text-slate-300 text-sm">Ready for the tournament?</p>
+      <div class="p-6 bg-slate-900 text-white rounded-2xl mb-6 shadow-md relative overflow-hidden">
+        <div class="relative z-10">
+          <h2 class="text-xl font-semibold mb-1">Welcome back!</h2>
+          <p class="text-slate-300 text-sm">Ready for the tournament?</p>
+        </div>
+        <div class="absolute -right-4 -bottom-4 opacity-10 text-6xl">⚽</div>
       </div>
       <div class="grid grid-cols-2 gap-4">
-        <button onclick="navigate('choose-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95">
-          <span class="text-3xl mb-2">🌍</span><span class="font-medium text-sm">Choose Teams</span>
+        <button onclick="navigate('choose-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 shadow-sm">
+          <span class="text-3xl mb-2">🌍</span><span class="font-medium text-sm text-slate-700">Choose Teams</span>
         </button>
-        <button onclick="navigate('picks-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95">
-          <span class="text-3xl mb-2">📋</span><span class="font-medium text-sm">My Picks</span>
+        <button onclick="navigate('picks-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 shadow-sm">
+          <span class="text-3xl mb-2">📋</span><span class="font-medium text-sm text-slate-700">My Picks</span>
         </button>
-        <button onclick="navigate('leaderboard-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95">
-          <span class="text-3xl mb-2">🏆</span><span class="font-medium text-sm">Leaderboard</span>
+        <button onclick="navigate('leaderboard-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 shadow-sm">
+          <span class="text-3xl mb-2">🏆</span><span class="font-medium text-sm text-slate-700">Leaderboard</span>
         </button>
-        <button onclick="navigate('stats-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95">
-          <span class="text-3xl mb-2">📊</span><span class="font-medium text-sm">Stats</span>
+        <button onclick="navigate('stats-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 shadow-sm">
+          <span class="text-3xl mb-2">📊</span><span class="font-medium text-sm text-slate-700">Stats</span>
         </button>
-        <button onclick="navigate('rules-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 col-span-2">
-          <span class="text-2xl mb-1">📖</span><span class="font-medium text-sm">League Details</span>
+        <button onclick="navigate('rules-view')" class="app-card p-4 flex flex-col items-center justify-center h-32 hover:bg-slate-50 transition active:scale-95 shadow-sm col-span-2">
+          <span class="text-2xl mb-1">📖</span><span class="font-medium text-sm text-slate-700">League Details</span>
         </button>
       </div>
     </div>
 
+    <div id="choose-view" class="hidden fade-in">
+      <div class="p-4 bg-yellow-50 text-yellow-800 rounded-lg text-sm mb-5 border border-yellow-200 flex items-start shadow-sm">
+        <span class="text-lg mr-2">🔒</span>
+        <div><span class="font-semibold block mb-1">Rosters Lock Soon</span> Teams lock on June 11th, 2026 at 2:00 PM CST.</div>
+      </div>
+      <h2 class="text-2xl font-bold mb-4 text-slate-800 px-1">Choose Teams</h2>
+      <div id="choose-teams-container"></div>
+      <button onclick="submitPicks()" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-full hover:bg-slate-800 transition mt-6 shadow-md">Save Picks</button>
+    </div>
+
+    <div id="admin-view" class="hidden fade-in">
+      <h2 class="text-2xl font-bold mb-6 text-slate-800 px-1">Admin Panel</h2>
+      <div id="admin-container"></div>
+    </div>
+
     <div id="rules-view" class="hidden fade-in">
-      <h2 class="text-2xl font-bold mb-4 px-1">League Details</h2>
+      <h2 class="text-2xl font-bold mb-4 px-1 text-slate-800">League Details</h2>
       <div id="rules-content"></div>
       <div class="app-card p-6 mt-4">
         <h3 class="font-bold text-lg mb-2">App Installation</h3>
-        <p class="text-sm text-gray-600 mb-2"><b>iPhone:</b> Open in Safari, tap the Share icon at the bottom, and select "Add to Home Screen".</p>
+        <p class="text-sm text-gray-600 mb-3"><b>iPhone:</b> Open in Safari, tap the Share icon at the bottom, and select "Add to Home Screen".</p>
         <p class="text-sm text-gray-600"><b>Android:</b> Open in Chrome, tap the 3 dots menu top right, and select "Install app" or "Add to Home Screen".</p>
       </div>
     </div>
 
-    <div id="choose-view" class="hidden fade-in"><div class="p-4 bg-yellow-50 text-yellow-800 rounded-lg text-sm mb-4">Teams lock on June 11th, 2026 at 2:00 PM CST.</div><h2 class="text-xl font-bold">Choose Teams</h2><p class="text-gray-500 mt-4 text-sm">Data will populate here from sheet...</p></div>
-    <div id="picks-view" class="hidden fade-in"><h2 class="text-xl font-bold">My Picks</h2></div>
-    <div id="leaderboard-view" class="hidden fade-in"><h2 class="text-xl font-bold">Leaderboard</h2></div>
-    <div id="stats-view" class="hidden fade-in"><h2 class="text-xl font-bold">Stats</h2></div>
-    <div id="admin-view" class="hidden fade-in"><h2 class="text-xl font-bold mb-4">Admin Panel</h2><div class="app-card p-4">Button: Invite User...</div></div>
+    <div id="picks-view" class="hidden fade-in"><h2 class="text-xl font-bold">My Picks</h2><p class="text-gray-500 mt-4 text-sm">Under Construction...</p></div>
+    <div id="leaderboard-view" class="hidden fade-in"><h2 class="text-xl font-bold">Leaderboard</h2><p class="text-gray-500 mt-4 text-sm">Under Construction...</p></div>
+    <div id="stats-view" class="hidden fade-in"><h2 class="text-xl font-bold">Stats</h2><p class="text-gray-500 mt-4 text-sm">Under Construction...</p></div>
+    
   </main>
 
-  <nav id="bottom-nav" class="hidden fixed bottom-0 w-full bg-white border-t border-gray-200 px-6 py-3 flex justify-between text-xs font-medium text-gray-500 z-40 pb-safe">
-    <button onclick="navigate('home-view')" class="flex flex-col items-center hover:text-slate-900"><span class="text-xl mb-1">🏠</span>Home</button>
-    <button onclick="navigate('picks-view')" class="flex flex-col items-center hover:text-slate-900"><span class="text-xl mb-1">📋</span>Picks</button>
-    <button onclick="navigate('leaderboard-view')" class="flex flex-col items-center hover:text-slate-900"><span class="text-xl mb-1">🏆</span>Board</button>
-    <button onclick="navigate('stats-view')" class="flex flex-col items-center hover:text-slate-900"><span class="text-xl mb-1">📊</span>Stats</button>
+  <nav id="bottom-nav" class="hidden fixed bottom-0 w-full bg-white border-t border-gray-200 px-6 py-3 flex justify-between text-xs font-medium text-gray-500 z-40 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.02)]">
+    <button onclick="navigate('home-view')" class="flex flex-col items-center hover:text-slate-900 transition"><span class="text-xl mb-1">🏠</span>Home</button>
+    <button onclick="navigate('picks-view')" class="flex flex-col items-center hover:text-slate-900 transition"><span class="text-xl mb-1">📋</span>Picks</button>
+    <button onclick="navigate('leaderboard-view')" class="flex flex-col items-center hover:text-slate-900 transition"><span class="text-xl mb-1">🏆</span>Board</button>
+    <button onclick="navigate('stats-view')" class="flex flex-col items-center hover:text-slate-900 transition"><span class="text-xl mb-1">📊</span>Stats</button>
   </nav>
 
   <script>
