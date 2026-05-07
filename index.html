@@ -20,8 +20,9 @@
     .hidden { display: none !important; }
     .fade-in { animation: fadeIn 0.3s ease-in-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .app-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    .tier-red { background-color: #fef2f2 !important; border-left: 4px solid #ef4444 !important; }
+    .app-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: background-color 0.3s, border-color 0.3s; }
+    /* New dynamic CSS class for completed tiers */
+    .tier-green { background-color: #f0fdf4 !important; border-color: #86efac !important; }
   </style>
   
   <script>
@@ -126,7 +127,6 @@
       if (res.success) {
         state.data = res;
         
-        // Sync local picks with what is saved in the database
         if (state.data.currentUser && state.data.currentUser.picks) {
           userPicks = state.data.currentUser.picks;
         }
@@ -139,7 +139,7 @@
 
     function logout() {
       state = { email: '', data: null, role: 'Member' };
-      userPicks = {}; // Clear picks on logout
+      userPicks = {}; 
       localStorage.removeItem('wc26_email');
       localStorage.removeItem('wc26_code');
       document.getElementById('nav-container').classList.add('hidden');
@@ -166,17 +166,17 @@
 
       let html = '';
       for(let i=1; i<=10; i++) {
-        const isRed = i >= 8;
-        const tierClass = isRed ? 'tier-red bg-red-50' : 'bg-white';
+        const hasPick = !!userPicks[i];
+        const tierClass = hasPick ? 'tier-green' : 'bg-white';
+        const titleColor = hasPick ? 'text-green-800' : 'text-slate-800';
         
         const teamsInTier = state.data.teams.filter(t => {
             const tierNumber = String(t.tier).replace(/\D/g, ''); 
             return tierNumber == i;
         });
 
-        // Load pre-existing picks from the database and generate their rich HTML
         let selectedHtml = `<span class="text-sm mt-1 text-slate-500 font-normal">Choose Tier ${i} Team</span>`;
-        if (userPicks[i]) {
+        if (hasPick) {
             const t = teamsInTier.find(tm => tm.name === userPicks[i]);
             if (t) {
                 selectedHtml = `
@@ -193,7 +193,15 @@
 
         let listContent = '';
         if (teamsInTier.length > 0) {
-            listContent = teamsInTier.map(t => `
+            // New: Clear Pick Option
+            listContent += `
+              <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200 text-red-500" onclick="selectTeam(${i}, '', '', '')">
+                <span class="w-8 mr-3 text-center text-lg font-bold">✕</span>
+                <span class="flex-1 text-sm font-medium">Clear Pick</span>
+              </div>
+            `;
+            // Map the rest of the teams
+            listContent += teamsInTier.map(t => `
                 <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}', '${t.flag}', '${t.group}')">
                   ${t.flag ? `<img src="${t.flag}" class="w-8 h-5 mr-3 object-cover border border-gray-300 rounded-sm">` : `<div class="w-8 h-5 mr-3 bg-gray-300 rounded-sm"></div>`}
                   <span class="flex-1 text-sm font-medium text-slate-700">${t.name}</span>
@@ -205,15 +213,18 @@
         }
 
         html += `
-          <div class="app-card mb-3 overflow-hidden ${tierClass}">
+          <div id="tier-card-${i}" class="app-card mb-3 overflow-hidden ${tierClass}">
             <div class="p-4 flex justify-between items-center cursor-pointer font-semibold border-b border-transparent hover:bg-gray-50 transition" onclick="toggleTier(${i})">
-              <div class="flex flex-col">
-                <span class="${isRed ? 'text-red-700' : 'text-slate-800'}">Tier ${i}</span>
+              <div class="flex flex-col flex-1">
+                <div class="flex items-center justify-between">
+                  <span id="tier-label-${i}" class="${titleColor}">Tier ${i}</span>
+                  ${i >= 8 ? `<span class="ml-2 mr-3 text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full uppercase tracking-wider">2x Points</span>` : ''}
+                </div>
                 <div id="selected-tier-container-${i}">${selectedHtml}</div>
               </div>
               <span id="chevron-${i}" class="transform transition-transform duration-200 text-slate-400">▼</span>
             </div>
-            <div id="tier-list-${i}" class="hidden bg-gray-50 border-t border-gray-200">
+            <div id="tier-list-${i}" class="hidden bg-gray-50 border-t border-gray-200 max-h-64 overflow-y-auto">
               ${listContent}
             </div>
           </div>
@@ -234,24 +245,39 @@
     }
 
     function selectTeam(tier, teamName, flag, group) {
-      userPicks[tier] = teamName;
+      const card = document.getElementById(`tier-card-${tier}`);
       const container = document.getElementById(`selected-tier-container-${tier}`);
-      container.innerHTML = `
-        <div class="flex items-center mt-1.5 fade-in">
-          ${flag && flag !== 'undefined' ? `<img src="${flag}" class="w-6 h-4 mr-2 object-cover border border-gray-300 rounded-sm">` : `<div class="w-6 h-4 mr-2 bg-gray-300 rounded-sm"></div>`}
-          <span class="text-sm font-semibold text-slate-900 mr-2">${teamName}</span>
-          <span class="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded shadow-sm font-medium">Grp ${group}</span>
-        </div>
-      `;
+      const tierLabel = document.getElementById(`tier-label-${tier}`);
+
+      if (!teamName) {
+        // Clear Pick
+        delete userPicks[tier];
+        container.innerHTML = `<span class="text-sm mt-1 text-slate-500 font-normal fade-in">Choose Tier ${tier} Team</span>`;
+        card.classList.remove('tier-green');
+        tierLabel.classList.remove('text-green-800');
+        tierLabel.classList.add('text-slate-800');
+      } else {
+        // Assign Pick
+        userPicks[tier] = teamName;
+        container.innerHTML = `
+          <div class="flex items-center mt-1.5 fade-in">
+            ${flag && flag !== 'undefined' ? `<img src="${flag}" class="w-6 h-4 mr-2 object-cover border border-gray-300 rounded-sm">` : `<div class="w-6 h-4 mr-2 bg-gray-300 rounded-sm"></div>`}
+            <span class="text-sm font-semibold text-slate-900 mr-2">${teamName}</span>
+            <span class="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded shadow-sm font-medium">Grp ${group}</span>
+          </div>
+        `;
+        card.classList.add('tier-green');
+        tierLabel.classList.remove('text-slate-800');
+        tierLabel.classList.add('text-green-800');
+      }
       toggleTier(tier); 
     }
 
     async function submitPicks() {
-      // Allow partial submissions: Validation Removed
       const res = await apiCall({ action: 'submit_picks', email: state.email, picks: userPicks });
       if(res && res.success) {
         alert("Picks saved successfully!");
-        fetchAppData(); // Resync state with DB
+        fetchAppData(); 
       } else {
         alert(res.message || "Error saving picks to the database.");
       }
