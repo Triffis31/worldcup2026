@@ -167,16 +167,30 @@
             return tierNumber == i;
         });
 
-        const selectedTeamText = userPicks[i] ? userPicks[i] : `Choose Tier ${i} Team`;
-        const selectedStyle = userPicks[i] ? 'text-slate-900 font-semibold' : 'text-slate-500 font-normal';
+        // Setup the dynamic HTML for the selected team
+        let selectedHtml = `<span class="text-sm mt-1 text-slate-500 font-normal">Choose Tier ${i} Team</span>`;
+        if (userPicks[i]) {
+            const t = teamsInTier.find(tm => tm.name === userPicks[i]);
+            if (t) {
+                selectedHtml = `
+                <div class="flex items-center mt-1.5">
+                  ${t.flag ? `<img src="${t.flag}" class="w-6 h-4 mr-2 object-cover border border-gray-300 rounded-sm">` : `<div class="w-6 h-4 mr-2 bg-gray-300 rounded-sm"></div>`}
+                  <span class="text-sm font-semibold text-slate-900 mr-2">${t.name}</span>
+                  <span class="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded shadow-sm font-medium">Grp ${t.group}</span>
+                </div>
+                `;
+            } else {
+                selectedHtml = `<span class="text-sm mt-1 text-slate-900 font-semibold">${userPicks[i]}</span>`;
+            }
+        }
 
         let listContent = '';
         if (teamsInTier.length > 0) {
             listContent = teamsInTier.map(t => `
-                <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}')">
+                <div class="p-3 border-b border-gray-200 flex items-center hover:bg-gray-100 cursor-pointer transition active:bg-gray-200" onclick="selectTeam(${i}, '${t.name.replace(/'/g, "\\'")}', '${t.flag}', '${t.group}')">
                   ${t.flag ? `<img src="${t.flag}" class="w-8 h-5 mr-3 object-cover border border-gray-300 rounded-sm">` : `<div class="w-8 h-5 mr-3 bg-gray-300 rounded-sm"></div>`}
                   <span class="flex-1 text-sm font-medium text-slate-700">${t.name}</span>
-                  <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded shadow-sm">Grp ${t.group}</span>
+                  <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded shadow-sm font-medium">Grp ${t.group}</span>
                 </div>
               `).join('');
         } else {
@@ -188,7 +202,7 @@
             <div class="p-4 flex justify-between items-center cursor-pointer font-semibold border-b border-transparent hover:bg-gray-50 transition" onclick="toggleTier(${i})">
               <div class="flex flex-col">
                 <span class="${isRed ? 'text-red-700' : 'text-slate-800'}">Tier ${i}</span>
-                <span id="selected-tier-${i}" class="text-sm mt-1 ${selectedStyle}">${selectedTeamText}</span>
+                <div id="selected-tier-container-${i}">${selectedHtml}</div>
               </div>
               <span id="chevron-${i}" class="transform transition-transform duration-200 text-slate-400">▼</span>
             </div>
@@ -212,12 +226,16 @@
       }
     }
 
-    function selectTeam(tier, teamName) {
+    function selectTeam(tier, teamName, flag, group) {
       userPicks[tier] = teamName;
-      const el = document.getElementById(`selected-tier-${tier}`);
-      el.innerText = teamName;
-      el.classList.replace('text-slate-500', 'text-slate-900');
-      el.classList.replace('font-normal', 'font-semibold');
+      const container = document.getElementById(`selected-tier-container-${tier}`);
+      container.innerHTML = `
+        <div class="flex items-center mt-1.5 fade-in">
+          ${flag && flag !== 'undefined' ? `<img src="${flag}" class="w-6 h-4 mr-2 object-cover border border-gray-300 rounded-sm">` : `<div class="w-6 h-4 mr-2 bg-gray-300 rounded-sm"></div>`}
+          <span class="text-sm font-semibold text-slate-900 mr-2">${teamName}</span>
+          <span class="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded shadow-sm font-medium">Grp ${group}</span>
+        </div>
+      `;
       toggleTier(tier); 
     }
 
